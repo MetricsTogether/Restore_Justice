@@ -1,0 +1,13 @@
+name: RestoreJustice
+title: RestoreJustice
+username:
+account: metricstogether
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 8403033
+bundleId: 7386041
+url: https://metricstogether.shinyapps.io/RestoreJustice/
+when: 1687714985.67245
+lastSyncTime: 1687714985.67245
+asMultiple: FALSE
+asStatic: FALSE
