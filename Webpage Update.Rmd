@@ -1,0 +1,414 @@
+---
+title: "RJ_Website"
+author: "Alison Turner"
+date: "2023-29-06"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message=FALSE, fig.path = "Website Images/")
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(ggplot2)
+library(plotly)
+library(htmlwidgets)
+library(censusapi)
+library(tigris)
+library(sf)
+
+```
+
+```{r Read Data}
+#read in latest data 
+IDOC <- read_xls("Prison Stock Reports/June2022.xls",skip=5)
+```
+
+```{r Functions and Colors, include=FALSE}
+# Functions for data processing
+# These functions are used to clean ACS pulled data 
+
+yeargeog <- function(year,state,vars){
+  data.frame(year = year, 
+             getCensus(name="acs/acs5",
+                       vintage=year,
+                       vars = vars,
+                       key=key,
+                       region = "tract:*",
+                       regionin = paste0("state:",unique(fips_codes$state_code)[state])
+             )
+  )
+  
+}
+
+fips_to_acs <- function(data){
+  t <- left_join(data,fips_codes,by=c("state"="state_code","county"="county_code"))
+  t
+}
+
+
+# defining the color scheme for Restore Justice
+mypal <- c("#213159","#3D6098","#9fc5e8","#F04B4C","#80475E","#FEC20E", "#b4b4b4")
+
+cvi_colours = list(
+  RJ_colors = c("#213159","#3D6098","#F04B4C","#80475E","#FEC20E", "#b4b4b4", "white")
+)
+
+cvi_palettes = function(name, n, all_palettes = cvi_colours, type = c("discrete", "continuous")) {
+  palette = all_palettes[[name]]
+  if (missing(n)) {
+    n = length(palette)
+  }
+  type = match.arg(type)
+  out = switch(type,
+               continuous = grDevices::colorRampPalette(palette)(n),
+               discrete = palette[1:n]
+  )
+  structure(out, name = name, class = "palette")
+}
+
+
+cvi_palettes("RJ_colors", type = "discrete")
+
+
+scale_colour_cvi_d = function(name) {
+  ggplot2::scale_colour_manual(values = cvi_palettes(name,
+                                                    type = "discrete"))
+}
+
+scale_fill_cvi_d = function(name) {
+  ggplot2::scale_fill_manual(values = cvi_palettes(name,
+                                                    type = "discrete"))
+}
+
+
+
+```
+
+
+```{r clean data}
+
+#clean footer rows (any observation without a name)
+IDOC <- drop_na(IDOC,Name)
+
+#clean column names for uniformity
+###### Alison! Make sure that you have a check in here (number of columns and redirect)
+
+
+
+names(IDOC) <- gsub('[[:digit:]]+', '', names(IDOC))
+names(IDOC) <- gsub("[[:punct:]]","",names(IDOC))
+
+
+## 2022 data
+names(IDOC) <- c("ID Number", "Name" ,"Birth Date","Sex", "Race",  "Veteran Status","Current Admission Date", "Admission Type" ,"Parent Institution", "Projected Mandatory Supervised Release Date", "Projected Discharge Date","Custody Date" ,"Sentence Date" , "Crime Class","Holding Offense" ,"Holding Offense Category","Offense Type", "Sentence Years" ,"Sentence Months"  ,"Truth in Sentencing" ,"Sentencing County"  )
+
+
+# Early stock files have changed institution names, create uniformity
+IDOC$`Parent Institution` <- gsub(" CC","",IDOC$`Parent Institution`)
+IDOC$`Parent Institution`<- gsub("Southwestern IL","Southwestern Illinois",IDOC$`Parent Institution`)
+
+# Clean dates 
+#### Alison! make sure this can take on the weird middle years 
+datevars <- grepl("Date",names(IDOC))
+
+# for (i in 1:length(datevars[datevars==TRUE])){
+#   IDOC[,datevars][,i] <- as.Date(IDOC[,datevars][,i])
+# }
+
+
+# Creation of year transform variables to calculate life sentence, Defacto Life Sentence, or SDP status 
+IDOC$yeartrans <- ifelse(grepl("^[[:digit:]]+$",IDOC$`Sentence Years`),IDOC$`Sentence Years`,NA)
+IDOC$yeartrans <- as.numeric(IDOC$yeartrans)
+IDOC <- IDOC %>% 
+  mutate(age=year(Sys.Date())-year(`Birth Date`),
+         life=ifelse(`Sentence Years`=="LIFE",1,(ifelse(yeartrans>39,"De Facto",0))),
+         sdp=ifelse(`Sentence Years`=="SDP",1,0),
+         "Sentence Age" = year(IDOC$`Sentence Date`)-year(IDOC$`Birth Date`),
+         "Custody Age" = year(IDOC$`Custody Date`)-year(IDOC$`Birth Date`)) %>% select(-yeartrans)
+
+
+
+IDOC$`Sentence Years` <- as.numeric(IDOC$`Sentence Years`)
+
+
+#Calculation of admission minus custody variable
+IDOC$`Admission to Custody Time Days` <- difftime(IDOC$`Current Admission Date`,IDOC$`Custody Date`,units="days")
+
+```
+
+```{r ACS pull, include=FALSE}
+#replace with a local census key 
+key <- "095f223bd2d9dd69b8546222bde6c171c540da9b"
+
+race_vars <- c("B01001A_001E","B01001B_001E","B01001C_001E","B01001D_001E","B01001E_001E","B01001F_001E","B01001G_001E","B01001H_001E","B01001I_001E")
+
+
+acs5_race <- getCensus(name = "acs/acs5",
+                          vintage = 2020,
+                          vars = race_vars,
+                          key = key,
+                          region="county:*",
+                          regionin = "state:17")
+
+acs5_race_state <- getCensus(name = "acs/acs5",
+                          vintage = 2020,
+                          vars = race_vars,
+                          key = key,
+                          region="state:17")
+
+
+acs5_race <- fips_to_acs(acs5_race)
+acs5_race <- acs5_race %>% select (state_name,county.y,"B01001A_001E","B01001B_001E","B01001C_001E","B01001D_001E","B01001E_001E","B01001F_001E","B01001G_001E","B01001H_001E","B01001I_001E" )
+
+names(acs5_race) <- c("state","county", 
+                      "white alone",
+                      "black alone",
+                      "american indian or alaska native alone",
+                      "asian alone",
+                      "native hawaiian or pacific islander alone",
+                      "some other race alone",
+                      "two or more races",
+                      "white alone, not hispanic or latino",
+                      "hispanic or latino, any race category"
+)
+names(acs5_race_state) <- c("state", 
+                      "white alone",
+                      "black alone",
+                      "american indian or alaska native alone",
+                      "asian alone",
+                      "native hawaiian or pacific islander alone",
+                      "some other race alone",
+                      "two or more races",
+                      "white alone, not hispanic or latino",
+                      "hispanic or latino, any race category"
+)
+
+acs5_race_state <- acs5_race_state %>% pivot_longer(!state,names_to = "Race",values_to = "Population") %>% dplyr::select(!state) 
+acs5_race_state_plot <- acs5_race_state[c(8,9,2),]
+acs5_race_state_plot2 <- c("Other",sum(acs5_race_state$Population[c(3:7)]))
+acs5_race_state_plot <- rbind(acs5_race_state_plot,acs5_race_state_plot2)
+acs5_race_state_plot$Race <- c("White","Hispanic","Black","Other")
+acs5_race_state_plot$Population <- as.numeric(acs5_race_state_plot$Population )
+#acs5_race_state_plot$Race <- as.factor(acs5_race_state_plot$Race )
+
+acs5_race_state_plot$Percent <- c(paste0(round(acs5_race_state_plot$Population / sum(acs5_race_state_plot$Population)*100,1),"%"))
+
+#transformation of data frame to align with IDOC data 
+acs5_race$county <- str_remove(acs5_race$county," County")
+acs5_race$total <- rowSums(acs5_race[,4:10])
+acs5_race_perc <- data.frame(acs5_race[,1:3],lapply(acs5_race[,4:10],function(x) (x/acs5_race$total)*100))
+acs5_race_perc$check <- rowSums(acs5_race_perc[,4:10])
+15
+IL_counties <- tigris::counties(state=17) %>%
+  select(county = NAME,geometry) %>% 
+  st_transform(4326) 
+
+names(acs5_race_perc)[4:10] <- c("White","Black","American Indian","Asian","Native Hawaiian","Unknown","Bi-Racial")
+
+
+
+ACS_IL <- acs5_race_perc %>% 
+  select(-check) %>% 
+  pivot_longer(cols = 4:10,names_to = "Race")
+
+
+ACS_IL <- left_join(ACS_IL,IL_counties)
+
+names(acs5_race)[4:10] <- c("White","Black","American Indian","Asian","Native Hawaiian","Unknown","Bi-Racial")
+
+
+ACS_IL2 <-acs5_race %>% 
+  pivot_longer(cols = 4:10,names_to = "Race") 
+
+```
+
+```{r Illinois Map, warning=FALSE}
+
+IDOC26 <- IDOC %>% filter(`Sentence Age`<26 | `Custody Date`< 26)
+
+county_life <- IDOC26[IDOC26$life %in% c("De Facto", 1),]%>% group_by(`Sentencing County`,Race) %>% summarise(number=n()) %>% mutate(percent=(number/sum(number))*100)
+
+county_life2 <- left_join(county_life,ACS_IL,by=c("Sentencing County"="county","Race"="Race"))
+
+county_life2 <- county_life2 %>% mutate(diff=percent-value)
+
+county_life_sums <- county_life2 %>%
+  group_by(`Sentencing County`) %>%
+  summarise(sum=sum(number)) 
+county_life_sums <- distinct(left_join(county_life_sums,county_life2[c(1,8)]))
+
+ggplot()+
+  geom_sf(data=IL_counties)+
+  geom_sf(data=county_life2[county_life2$Race=="Black",], mapping=aes(fill=diff,geometry=geometry))+
+  geom_sf_text(data=county_life_sums,mapping = aes(label=sum,geometry=geometry),color="white")+
+  theme_classic()+
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+        axis.text.y=element_blank(),axis.ticks=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank())+
+  labs(fill="Percent Difference (Black)")
+  
+  
+  
+life26 <- sum(county_life$number)
+
+  
+pop <- length(IDOC$`ID Number`)
+
+poppct <- round((life26/pop)*100,digits=0)
+```
+
+In Illinois today, there are `r life26` people who were taken into custody before the age of 26 serving sentences of life and de facto life in state prisons. De facto life is defined by the United States Sentencing Commission as termed sentences longer than 40 years. These people represent about `r poppct` percent (`r pop`) of Illinois’s prison population.
+
+Each case and person is unique, and few statements can describe all individuals serving extreme sentences. That said, knowing at a broad level who bears the burden of the state’s most extreme sentences helps us understand the issues, craft more nuanced policies, and build common ground for dialogue between communities, advocates, and legislators.
+
+Here’s what we know about this group of individuals.
+
+
+## Who They Are
+
+Overwhelmingly, the people in Illinois serving life and de facto life for offenses that occurred before the age of 26 are young Black men from Cook and its neighboring counties. Figure 1 shows the distribution of sentences by race, compared with Illinois demographics.
+
+```{r Who they Are 1}
+IDOC26_LifeDeFacto <- IDOC26[IDOC26$life %in% c("De Facto", 1),]
+summary <- IDOC26_LifeDeFacto  %>% group_by(Race) %>% summarise(value=n())
+pie_race <- IDOC26_LifeDeFacto %>% mutate(Race = recode(Race,
+                                                         "Asian"="Other",
+                                                        "American Indian"="Other",
+                                                        "Bi-Racial"="Other",
+                                                        "Hispanic"="Hispanic",
+                                                        "Unknown"="Other",
+                                                        "NA"="Other"))
+pie_race <- pie_race %>% group_by(Race) %>% summarise(value=n()) %>% mutate(pct=paste0(round(value/sum(value)*100,1),"%"))
+
+
+
+life_county_sentence <- length(unique(IDOC26$`Sentencing County`[IDOC26$life %in% c("De Facto", 1)]))
+cook_life <- length(IDOC26[IDOC26$life %in% c("De Facto", 1) & IDOC26$`Sentencing County`=="Cook",])/life_county_sentence
+cook_count <- length(IDOC26[IDOC26$life %in% c("De Facto", 1) & IDOC26$`Sentencing County`=="Cook",])
+```
+
+`r life_county_sentence` of Illinois’s 102 counties have sentenced at least one person to life or de facto life (among the people still serving these sentences) for an offense that occurred before the person’s 26th birthday. `r cook_life` percent (`r cook_count`) of the people currently serving life or de facto life for crimes that occurred before they turned 26 are from Cook County. 
+
+```{r Who they Are 2}
+
+youthhom <- round(length(IDOC$life[IDOC$life %in% c("De Facto", 1) & str_detect(IDOC$`Holding Offense`,"MURDER")])/length(IDOC$life[IDOC$life %in% c("De Facto", 1)])*100,digits=0)
+
+blacklife <- length(IDOC$life[IDOC$life %in% c("De Facto", 1) & IDOC$Race=="Black"])
+blacklifepct <- round(length(IDOC$life[IDOC$life %in% c("De Facto", 1) & IDOC$Race=="Black"])/length(IDOC$life[IDOC$life %in% c("De Facto", 1)])*100,digits=0)
+
+```
+
+About `r youthhom` percent of youth life and de facto life sentences are for homicide-related offenses. 
+
+`r blacklifepct` percent (`r blacklife`) people serving life or de facto life for crimes that occurred in their youth are Black.
+
+```{r Race Charts}
+library(scales)
+df2 <- pie_race %>% 
+  mutate(csum = rev(cumsum(rev(value))), 
+         pos = value/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), value/2, pos))
+
+
+df1 <- acs5_race_state_plot %>% 
+  mutate(csum = rev(cumsum(rev(Population))), 
+         pos = Population/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), Population/2, pos))
+
+PR <- ggplot(pie_race)+
+  geom_bar(mapping=aes(x="",y=value,fill=Race),stat="identity")+
+  coord_polar("y", start=0)+
+  scale_fill_manual(values=c("#3D6098","#80475E","#F04B4C","#b4b4b4"))+
+  scale_y_continuous(breaks = df2$pos, labels = pie_race$pct) +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_text(size = 11),
+        panel.background = element_rect(fill = "white"))
+
+PR
+
+PR2 <- ggplot(df1)+
+  geom_bar(mapping=aes(x="",y=Population,fill=Race),stat="identity")+
+  coord_polar("y", start=0)+
+  scale_fill_manual(values=c("#3D6098","#80475E","#F04B4C","#b4b4b4"))+
+  scale_y_continuous(breaks = df1$pos, labels = df1$Percent) +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_text(size = 11),
+        panel.background = element_rect(fill = "white"))
+
+PR2
+
+```
+
+## When They Enter
+
+```{r When they Enter}
+pct1 <- round(length(IDOC26_LifeDeFacto$`ID Number`)/length(IDOC$`ID Number`[IDOC$life %in% c("De Facto",1)])*100,0)
+pct2 <- round(length(IDOC$`ID Number`[IDOC$`Custody Age`<26])/length(IDOC$`ID Number`)*100,0)
+minage <- min(IDOC$`Custody Age`)
+
+mydate <- as.Date("2004-01-01")
+pre04 <- round(length(IDOC26_LifeDeFacto$`ID Number`[IDOC26_LifeDeFacto$`Sentence Date`<mydate])/length(IDOC26_LifeDeFacto$`ID Number`)*100,0)
+```
+
+
+
+Almost half (`r pct1`) of all people sentenced to life and de facto in Illinois entered custody before the age of 26.
+
+About 1 in 3 (`r pct2`) entered custody before the age of 21, some as young as `r minage` years old, much too young to drive a car or vote.
+
+More than half (`r pre04`) of the people currently serving youth life or de facto life received their sentences before 2004.
+
+Figure 2 shows the distribution of ages when individuals were taken into custody.
+```{r Custody Bar}
+ggplot(IDOC26_LifeDeFacto)+
+  geom_bar(mapping = aes(x=`Custody Age`), fill = "#F04B4C")+
+  coord_cartesian(xlim = c(12,25))+
+  labs(x="Age at custody",y="Number of people")+
+  theme_minimal()
+```
+
+
+Figure 3 shows the distribution of sentence year for the current population of serving individuals.
+```{r Life Sentence Area}
+
+ggplot(IDOC26_LifeDeFacto)+
+  geom_area(mapping = aes(x=`Sentence Date`,fill=life),stat="bin") +
+  scale_fill_manual(values=c("#F04B4C","#3D6098"))+
+  theme_minimal()+
+  labs(y="Number of New Individuals Sentenced",x="Year of Sentencing")
+
+
+```
+
+
+Figure 4. Distribution of Youth Life and De Facto Life Sentences by Length and Type
+
+```{r Sentence Years Bins}
+
+lastplot <- IDOC26_LifeDeFacto %>% 
+  mutate(SY = case_when(`Sentence Years` < 50 ~ "40-49",
+                        `Sentence Years`>=50 & `Sentence Years`<60 ~ "50-59",
+                        `Sentence Years`>=60 & `Sentence Years`<70 ~ "60-69",
+                        `Sentence Years`>=70 & `Sentence Years`<80 ~ "70-79",
+                        `Sentence Years`>=80 & `Sentence Years`<90 ~ "80-89",
+                        `Sentence Years`>=90 & `Sentence Years`<100 ~ "90-99",
+                        `Sentence Years`>=100 & `Sentence Years`<150 ~ "100-149",
+                        `Sentence Years`>=150 & `Sentence Years`<200 ~ "150-199",
+                        `Sentence Years`>=200 ~ "200+",
+                        is.na(`Sentence Years`) ~ "Life"))
+lastplot <- lastplot %>% group_by(life,SY) %>% summarise(n())
+lastplot$SY <- ordered(lastplot$SY,levels= c("40-49","50-59","60-69","70-79","80-89","90-99","100-149","150-199","200+","Life"))
+
+
+
+ggplot(lastplot)+ 
+  geom_col(mapping = aes(x=SY, y=`n()`, fill=life)) +
+  scale_fill_manual(values=c("#F04B4C","#3D6098"))+
+  theme_minimal()+
+  labs(x="Sentence Length (years) or Type", y="Number of People")
+
+
+```
