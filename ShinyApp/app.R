@@ -213,7 +213,7 @@ tabPanel("Geographic Explorer",
 #downloadButton("downloadData", "Download"),
 tags$img(src="RJLogo.png",align="right"),
 tags$img(src="MTLogo.png",align="bottomright"),
-h6("For questions or issues with the app contact info@metricstogether.com or see our github at https://github.com/MetricsTogether/OurProjects/tree/main/Restore%20Justice/RestoreJustice"),
+h6("For questions or issues with the app contact info@metricstogether.com or see our github at https://github.com/MetricsTogether/RestoreJustice"),
 
 tags$style(HTML(".navbar-header { width:100% }
                    .navbar-brand { width: 100%; text-align: center }")) # center text
