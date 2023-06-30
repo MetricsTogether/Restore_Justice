@@ -9,6 +9,7 @@ library(censusapi)
 library(tigris)
 library(sf)
 library(DT)
+library(leaflet)
 
 ### Uploading the RJ Color Scheme
 
@@ -114,18 +115,6 @@ ui <- navbarPage(
                  )), 
 
   
-  #Quickstats panel
-  # tabPanel("Quick Stats",
-  #          mainPanel(
-  #            "How many people",
-  #            selectInput("first select",
-  #                        label="select",
-  #                        choices = c("were sentenced","under (age)","will exit"),
-  #                        selected = "were sentenced"),
-  #            "before 2018"
-  #            #dataTableOutput("quickstats")
-  #            # How many people dropdown (were sentenced, under (age), will exit)
-  #          )),
 # Calling the Layout
 
 
@@ -137,9 +126,8 @@ tabPanel("Data Explorer",
   sidebarPanel(
     selectInput("timeperiod","Time Period",choices =sort(unique(full_IDOC$FileName),decreasing = TRUE)),
     numericInput("SentAge", "Individuals Sentenced before age:", value = 100),
-    tableOutput("Statistics"),
-    #actionButton(inputId = "runreport",label = "Run Website Report")
-    uiOutput("ui_open_tab_button")
+    tableOutput("Statistics")
+   # , uiOutput("ui_open_tab_button")
     #tabs
   ),
   
@@ -206,7 +194,7 @@ tabPanel("Incidents Tool",
 
 tabPanel("Geographic Explorer",
          mainPanel(
-           plotOutput("ILmap")
+           leafletOutput("ILmap")
            
          )),
 
@@ -512,20 +500,41 @@ output$OMR <- renderPlot({
     ) )
 })
 
-output$ILmap <- renderPlot({
 
-  IL_counties <- tigris::counties(state=17) %>%
-    select(county = NAME,geometry) %>%
-    st_transform(4326)
+IL_counties <- tigris::counties(state=17) %>%
+  select(county = NAME,geometry) %>%
+  st_transform(4326)
 
-  ggplot()+
-    geom_sf(data=IL_counties,fill="white")+
-    theme_classic()+
-    theme(axis.line=element_blank(),axis.text.x=element_blank(),
-          axis.text.y=element_blank(),axis.ticks=element_blank(),
-          axis.title.x=element_blank(),
-          axis.title.y=element_blank())+
-    labs(fill="")
+# IDOC_geog <- full_IDOC %>% filter(year(FileName)==year(today())) %>% 
+#   group_by(`Sentencing County`) %>% 
+#   summarize("Number of incarcerated individuals" = n(),
+#             "Percent of incarcerated population who is black" = length(Race=="Black"),
+#             "Percent of incarcerated population sentenced before age 26" =length(`Sentence Age`<26))
+# 
+# full_IDOC %>% filter(year(FileName)==year(today())) %>% 
+#   group_by(`Sentencing County`,race) %>%
+#   mutate(countT= sum(count)) %>%
+#   group_by(type, add=TRUE) %>%
+#   mutate(per=paste0(round(100*count/countT,2),'%'))
+# 
+# IL_counties <- left_join(IL_counties,IDOC_geog,by=c("county"="Sentencing County"))
+
+output$ILmap <- renderLeaflet({
+  leaflet(IL_counties) %>% 
+    addPolygons(color = mypal[2],
+                weight = 1,
+                smoothFactor = .5,
+                opacity = 1,
+                fillOpacity = .5,
+                label = "123")
+  # ggplot()+
+  #   geom_sf(data=IL_counties,fill="white")+
+  #   theme_classic()+
+  #   theme(axis.line=element_blank(),axis.text.x=element_blank(),
+  #         axis.text.y=element_blank(),axis.ticks=element_blank(),
+  #         axis.title.x=element_blank(),
+  #         axis.title.y=element_blank())+
+  #   labs(fill="")
 })
 
 
@@ -546,9 +555,6 @@ output$ILmap <- renderPlot({
   
 }
 
-#issues : dates are coming out hella weird
-#       : SUPER slow due to large file size
-#       : Not particularly useful (maybe visualizations rather than table?)
 
 # Run the application 
 shinyApp(ui = ui, server = server)
