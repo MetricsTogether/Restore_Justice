@@ -470,11 +470,11 @@ output$download6 <- downloadHandler(
   output$data <- renderDataTable({
     vals <- c(input$selection)
 
-    stock_sent()$`Birth Date` <- as.character(stock_sent()$`Birth Date`)
+    #stock_sent()$`Birth Date` <- as.character(stock_sent()$`Birth Date`)
     stock_sent()$`Current Admission Date`<- as.character(stock_sent()$`Current Admission Date`)
     stock_sent()$`Projected Mandatory Supervised Release Date`<- as.character(stock_sent()$`Projected Mandatory Supervised Release Date`)
     stock_sent()$`Projected Discharge Date` <- as.character(stock_sent()$`Projected Discharge Date`)
-    stock_sent()$`Custody Date` <- as.character(stock_sent()$`Custody Date`)
+    #stock_sent()$`Custody Date` <- as.character(stock_sent()$`Custody Date`)
     stock_sent()$`Sentence Date` <- as.character(stock_sent()$`Sentence Date`)
 
 
@@ -501,9 +501,7 @@ output$OMR <- renderPlot({
 })
 
 
-IL_counties <- tigris::counties(state=17) %>%
-  select(county = NAME,geometry) %>%
-  st_transform(4326)
+IL_counties <- read_rds("IL_counties.rds")
 
 # IDOC_geog <- full_IDOC %>% filter(year(FileName)==year(today())) %>% 
 #   group_by(`Sentencing County`) %>% 
